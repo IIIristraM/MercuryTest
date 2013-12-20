@@ -8,16 +8,8 @@ namespace Domain
 {
     public class User
     {
-        private ICollection<File> _lockedFiles;
-
-        public virtual int Id { get; set; }
+        public virtual string Id { get; set; }
         public virtual string Name { get; set; }
-        public virtual ICollection<File> LockedFiles
-        {
-            get
-            {
-                return _lockedFiles ?? (_lockedFiles = new HashSet<File>());
-            }
-        }
+        public virtual IEnumerable<File> LockedFiles { get; set; }
     }
 }

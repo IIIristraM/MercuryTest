@@ -7,38 +7,52 @@ using System.Text;
 
 namespace FileManagerService
 {
-    [ServiceContract]
+    [ServiceContract(CallbackContract = typeof(IClientNotification))]
     public interface IFileManagerService
     {
         [OperationContract]
-        string GetData(int value);
+        string Connect(string userName);
 
         [OperationContract]
-        CompositeType GetDataUsingDataContract(CompositeType composite);
+        string Quit();
 
-        // TODO: Add your service operations here
+        [OperationContract]
+        string CreateDirectory(string path);
+
+        [OperationContract]
+        string ChangeDirectory(string path);
+
+        [OperationContract]
+        string DeleteDirectory(string path);
+
+        [OperationContract]
+        string DeleteTree(string path);
+
+        [OperationContract]
+        string CreateFile(string path);
+
+        [OperationContract]
+        string DeleteFile(string path);
+
+        [OperationContract]
+        string Lock(string path);
+
+        [OperationContract]
+        string Unlock(string path);
+
+        [OperationContract]
+        string Copy(string sourcePath, string destinationPath);
+
+        [OperationContract]
+        string Move(string sourcePath, string destinationPath);
+
+        [OperationContract]
+        string Print();
     }
 
-    // Use a data contract as illustrated in the sample below to add composite types to service operations.
-    // You can add XSD files into the project. After building the project, you can directly use the data types defined there, with the namespace "FileManagerService.ContractType".
-    [DataContract]
-    public class CompositeType
+    public interface IClientNotification
     {
-        bool boolValue = true;
-        string stringValue = "Hello ";
-
-        [DataMember]
-        public bool BoolValue
-        {
-            get { return boolValue; }
-            set { boolValue = value; }
-        }
-
-        [DataMember]
-        public string StringValue
-        {
-            get { return stringValue; }
-            set { stringValue = value; }
-        }
+        [OperationContract(IsOneWay = true)]
+        void PrintNotification(string notification);
     }
 }
