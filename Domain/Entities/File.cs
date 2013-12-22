@@ -8,7 +8,6 @@ namespace Domain
 {
     public class File
     {
-        public virtual string Id { get; set; }
         public virtual string Title { get; set; }
         public virtual string FullPath { get; set; }
         public virtual Directory Directory { get; set; }

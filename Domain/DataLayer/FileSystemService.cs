@@ -15,6 +15,14 @@ namespace Domain
 
         private class LocalUser : User
         {
+            private IEnumerable<File> _lockedFiles;
+            public override IEnumerable<File> LockedFiles
+            {
+                get
+                {
+                    return _lockedFiles ?? (_lockedFiles = new List<File>());
+                }
+            }
         }
 
         private class LocalFile : File
@@ -24,7 +32,7 @@ namespace Domain
             {
                 get
                 {
-                    return FileSystemService.Users.Select(u => u.Value).Where(u => u.LockedFiles.Any(f => f.Id == Id));
+                    return FileSystemService.Users.Select(u => u.Value).Where(u => u.LockedFiles.Any(f => f.FullPath == FullPath));
                 }
             }
 
@@ -54,7 +62,7 @@ namespace Domain
             {
                 get
                 {
-                    return FileSystemService.Files.Select(f => f.Value).Where(f => f.Directory.Id == Id);
+                    return FileSystemService.Files.Select(f => f.Value).Where(f => f.Directory.FullPath == FullPath);
                 }
             }
 
@@ -62,7 +70,7 @@ namespace Domain
             {
                 get
                 {
-                    return FileSystemService.Directories.Select(d => d.Value).Where(d => d.Root.Id == Id);
+                    return FileSystemService.Directories.Select(d => d.Value).Where(d => d.Root.FullPath == FullPath);
                 }
             }
 
@@ -97,17 +105,17 @@ namespace Domain
 
         public bool RemoveUser(User user)
         {
-            return Users.TryRemove(user.Id, out user);
+            return Users.TryRemove(user.Name, out user);
         }
 
         public bool AddUser(User user)
         {
             var local = new LocalUser()
             {
-                Id = Guid.NewGuid().ToString(),
                 Name = user.Name
             };
-            return Users.TryAdd(local.Id, local);
+            user = local;
+            return Users.TryAdd(local.Name, local);
         }
 
         public IEnumerable<File> GetFiles(Expression<Func<File, bool>> where)
@@ -122,19 +130,19 @@ namespace Domain
 
         public bool RemoveFile(File file)
         {
-            return Files.TryRemove(file.Id, out file);
+            return Files.TryRemove(file.FullPath, out file);
         }
 
         public bool AddFile(File file)
         {
             var local = new LocalFile()
             {
-                Id = Guid.NewGuid().ToString(),
                 Title = file.Title,
                 FullPath = file.FullPath,
                 Directory = file.Directory
             };
-            return Files.TryAdd(local.Id, local);
+            file = local;
+            return Files.TryAdd(local.FullPath, local);
         }
 
         public IEnumerable<Directory> GetDirectories(Expression<Func<Directory, bool>> where)
@@ -149,19 +157,19 @@ namespace Domain
 
         public bool RemoveDirectory(Directory directory)
         {
-            return Directories.TryRemove(directory.Id, out directory);
+            return Directories.TryRemove(directory.FullPath, out directory);
         }
 
         public bool AddDirectory(Directory directory)
         {
             var local = new LocalDirectory()
             {
-                Id = Guid.NewGuid().ToString(),
                 Title = directory.Title,
                 FullPath = directory.FullPath,
                 Root = directory.Root
             };
-            return Directories.TryAdd(local.Id, local);
+            directory = local;
+            return Directories.TryAdd(local.FullPath, local);
         }
     }
 }

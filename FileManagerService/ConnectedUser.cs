@@ -11,6 +11,7 @@ namespace FileManagerService
     {
         public User User { get; set; }
         public string CurrentDirectory { get; set; }
+        public string SessionId { get; set; }
         public IClientNotification CallbackChannel { get; set; }
     }
 }
