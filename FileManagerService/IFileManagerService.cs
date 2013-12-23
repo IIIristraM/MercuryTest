@@ -11,42 +11,32 @@ namespace FileManagerService
     public interface IFileManagerService
     {
         [OperationContract]
+        string ExecuteCommand(string command);
+        
         string Connect(string userName);
-
-        [OperationContract]
+        
         string Quit();
-
-        [OperationContract]
+        
         string CreateDirectory(string path);
-
-        [OperationContract]
+        
         string ChangeDirectory(string path);
-
-        [OperationContract]
+        
         string DeleteDirectory(string path);
-
-        [OperationContract]
+      
         string DeleteTree(string path);
-
-        [OperationContract]
+      
         string CreateFile(string path);
-
-        [OperationContract]
+       
         string DeleteFile(string path);
-
-        [OperationContract]
+     
         string Lock(string path);
-
-        [OperationContract]
+       
         string Unlock(string path);
-
-        [OperationContract]
+        
         string Copy(string sourcePath, string destinationPath);
-
-        [OperationContract]
+       
         string Move(string sourcePath, string destinationPath);
-
-        [OperationContract]
+        
         string Print();
     }
 

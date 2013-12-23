@@ -9,6 +9,6 @@ namespace Domain
     public class User
     {
         public virtual string Name { get; set; }
-        public virtual IEnumerable<File> LockedFiles { get; private set; }
+        public virtual IList<File> LockedFiles { get; private set; }
     }
 }
