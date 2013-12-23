@@ -6,7 +6,7 @@ using System.Threading.Tasks;
 
 namespace Client
 {
-    public class Notificator : FileManagerServiceProxy.IFileManagerServiceCallback
+    public class Notificator: FileManagerServiceProxy.IFileManagerServiceCallback
     {
         public void PrintNotification(string notification)
         {

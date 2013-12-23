@@ -13,8 +13,8 @@ namespace UnitTests
         public FileSystemServiceTest()
         {
             AddUser();
-            AddFile();
             AddDirectory();
+            AddFile();
         }
 
         [TestMethod]
@@ -26,7 +26,7 @@ namespace UnitTests
                 Name = "Konstantin_" + Guid.NewGuid()
             };
 
-            var success = service.AddUser(user);
+            var success = service.AddUser(ref user);
             var newCount = service.GetUsers(null).Count();
             Assert.IsTrue(success);
             Assert.AreEqual(newCount, count + 1);
@@ -35,7 +35,8 @@ namespace UnitTests
             success = true;
             try
             {
-                service.AddUser(null);
+                user = null;
+                service.AddUser(ref user);
             }
             catch
             {
@@ -74,10 +75,11 @@ namespace UnitTests
             var count = service.GetFiles(null).Count();
             var file = new File()
             {
-                FullPath = @"C:\temp_" + Guid.NewGuid() + ".txt"
+                FullPath = @"c:\temp_" + Guid.NewGuid() + ".txt",
+                Directory = service.GetDirectories(null).First()
             };
 
-            var success = service.AddFile(file);
+            var success = service.AddFile(ref file);
             var newCount = service.GetFiles(null).Count();
             Assert.IsTrue(success);
             Assert.AreEqual(newCount, count + 1);
@@ -86,7 +88,8 @@ namespace UnitTests
             success = true;
             try
             {
-                service.AddFile(null);
+                file = null;
+                service.AddFile(ref file);
             }
             catch
             {
@@ -125,10 +128,10 @@ namespace UnitTests
             var count = service.GetDirectories(null).Count();
             var directory = new Directory()
             {
-                FullPath = @"C:\data_" + Guid.NewGuid()
+                FullPath = @"c:\data_" + Guid.NewGuid()
             };
 
-            var success = service.AddDirectory(directory);
+            var success = service.AddDirectory(ref directory);
             var newCount = service.GetDirectories(null).Count();
             Assert.IsTrue(success);
             Assert.AreEqual(newCount, count + 1);
@@ -137,7 +140,8 @@ namespace UnitTests
             success = true;
             try
             {
-                service.AddDirectory(null);
+                directory = null;
+                service.AddDirectory(ref directory);
             }
             catch
             {

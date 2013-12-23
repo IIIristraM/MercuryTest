@@ -9,9 +9,9 @@ namespace Domain
 {
     public interface IFileSystemService
     {
-        bool AddDirectory(Directory directory);
-        bool AddFile(File file);
-        bool AddUser(User user);
+        bool AddDirectory(ref Directory directory);
+        bool AddFile(ref File file);
+        bool AddUser(ref User user);
         IEnumerable<Directory> GetDirectories(Expression<Func<Directory, bool>> where);
         IEnumerable<File> GetFiles(Expression<Func<File, bool>> where);
         IEnumerable<User> GetUsers(Expression<Func<User, bool>> where);

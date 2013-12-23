@@ -15,8 +15,8 @@ namespace Domain
 
         private class LocalUser : User
         {
-            private IEnumerable<File> _lockedFiles;
-            public override IEnumerable<File> LockedFiles
+            private IList<File> _lockedFiles;
+            public override IList<File> LockedFiles
             {
                 get
                 {
@@ -70,7 +70,7 @@ namespace Domain
             {
                 get
                 {
-                    return FileSystemService.Directories.Select(d => d.Value).Where(d => d.Root.FullPath == FullPath);
+                    return FileSystemService.Directories.Select(d => d.Value).Where(d => (d.Root != null ) && (d.Root.FullPath == FullPath));
                 }
             }
 
@@ -108,7 +108,7 @@ namespace Domain
             return Users.TryRemove(user.Name, out user);
         }
 
-        public bool AddUser(User user)
+        public bool AddUser(ref User user)
         {
             var local = new LocalUser()
             {
@@ -133,7 +133,7 @@ namespace Domain
             return Files.TryRemove(file.FullPath, out file);
         }
 
-        public bool AddFile(File file)
+        public bool AddFile(ref File file)
         {
             var local = new LocalFile()
             {
@@ -160,7 +160,7 @@ namespace Domain
             return Directories.TryRemove(directory.FullPath, out directory);
         }
 
-        public bool AddDirectory(Directory directory)
+        public bool AddDirectory(ref Directory directory)
         {
             var local = new LocalDirectory()
             {
