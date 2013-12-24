@@ -2,6 +2,7 @@
 using Microsoft.VisualStudio.TestTools.UnitTesting;
 using FileManagerService;
 using Domain;
+using Microsoft.QualityTools.Testing.Fakes;
 
 namespace UnitTests
 {
@@ -14,7 +15,7 @@ namespace UnitTests
         public FileManagerServiceTest()
         {
             _fileSystem = new FileSystemService();
-            _service = new FileManagerService.FileManagerService(_fileSystem);
+            _service = new FileManagerServiceStub(_fileSystem);
         }
 
         [TestMethod]
@@ -25,27 +26,27 @@ namespace UnitTests
             Assert.AreEqual(response, "c:>");
 
             response = _service.Connect(userName);
-            Assert.AreEqual(response, "Error: User has been connected already");
+            Assert.AreEqual(response, "Error: User has been connected already\r\n");
         }
 
-        /*[TestMethod]
+        [TestMethod]
         public void Quit()
         {
             var response = _service.Quit();
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             response = _service.Connect(userName);
             response = _service.Quit();
-            Assert.AreEqual(response, "Disconnect comlete");
-        }*/
+            Assert.AreEqual(response, "Disconnect comlete\r\n");
+        }
 
         [TestMethod]
         public void CreateDirectory()
         {
             var path = "temp" + Guid.NewGuid();
             var response = _service.CreateDirectory(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -65,7 +66,7 @@ namespace UnitTests
         {
             var path = "temp" + Guid.NewGuid();
             var response = _service.ChangeDirectory(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -82,7 +83,7 @@ namespace UnitTests
         {
             var path = "temp" + Guid.NewGuid();
             var response = _service.DeleteDirectory(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -113,7 +114,7 @@ namespace UnitTests
         {
             var path = "temp" + Guid.NewGuid();
             var response = _service.DeleteTree(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -145,7 +146,7 @@ namespace UnitTests
         {
             var path = "1.txt" + Guid.NewGuid();
             var response = _service.CreateFile(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -165,7 +166,7 @@ namespace UnitTests
         {
             var path = "1.txt" + Guid.NewGuid();
             var response = _service.DeleteFile(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -187,7 +188,7 @@ namespace UnitTests
         {
             var path = "1.txt" + Guid.NewGuid();
             var response = _service.Lock(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -207,7 +208,7 @@ namespace UnitTests
         {
             var path = "1.txt" + Guid.NewGuid();
             var response = _service.Unlock(path);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
 
             var userName = "konstantin" + Guid.NewGuid();
             _service.Connect(userName);
@@ -226,10 +227,78 @@ namespace UnitTests
         [TestMethod]
         public void Copy()
         {
-            var source = "temp";
-            var destination = "temp2";
+            var source = "temp" + Guid.NewGuid();
+            var destination = "temp2" + Guid.NewGuid();
             var response = _service.Copy(source, destination);
-            Assert.AreEqual(response, "Error: You need to login");
+            Assert.AreEqual(response, "Error: You need to login\r\n");
+
+            var userName = "konstantin" + Guid.NewGuid();
+            _service.Connect(userName);
+            response = _service.Copy(source, destination);
+            Assert.AreEqual(response, "Error: Destination directory doesn't exist\r\nc:>");
+
+            _service.CreateDirectory(destination);
+            response = _service.Copy(source, destination);
+            Assert.AreEqual(response, "Error: Source directory or file doesn't exist\r\nc:>");
+
+            _service.CreateDirectory(source);
+            response = _service.Copy(source, destination);
+            Assert.AreEqual(response, "c:>");
+
+            response = _service.Copy(source, destination);
+            Assert.AreEqual(response, "Error: Destination already has such directory or file\r\nc:>");
+
+            _service.CreateFile(source + ".txt");
+            response = _service.Copy(source + ".txt", destination);
+            Assert.AreEqual(response, "c:>");
+
+            response = _service.Copy(source + ".txt", destination);
+            Assert.AreEqual(response, "Error: Destination already has such directory or file\r\nc:>");
+        }
+
+        [TestMethod]
+        public void Move()
+        {
+            var source = "temp" + Guid.NewGuid();
+            var destination = "temp2" + Guid.NewGuid();
+            var response = _service.Move(source, destination);
+            Assert.AreEqual(response, "Error: You need to login\r\n");
+
+            var userName = "konstantin" + Guid.NewGuid();
+            _service.Connect(userName);
+            response = _service.Move(source, destination);
+            Assert.AreEqual(response, "Error: Destination directory doesn't exist\r\nc:>");
+
+            _service.CreateDirectory(destination);
+            response = _service.Move(source, destination);
+            Assert.AreEqual(response, "Error: Source directory or file doesn't exist\r\nc:>");
+
+            _service.CreateFile(source + ".txt");
+            _service.Lock(source + ".txt");
+            response = _service.Move(source + ".txt", destination);
+            Assert.AreEqual(response, "Error: File is locked\r\nc:>");
+
+            _service.Unlock(source + ".txt");
+            response = _service.Move(source + ".txt", destination);
+            Assert.AreEqual(response, "c:>");
+
+            _service.CreateFile(source + ".txt");
+            response = _service.Move(source + ".txt", destination);
+            Assert.AreEqual(response, "Error: Destination already has such directory or file\r\nc:>");
+
+            _service.CreateDirectory(source);
+            _service.CreateFile(source + @"\1.txt");
+            _service.Lock(source + @"\1.txt");
+            response = _service.Move(source, destination);
+            Assert.AreEqual(response, "Error: Directory 'c:\\" + source + "' has locked files\r\nc:>");
+
+            _service.Unlock(source + @"\1.txt");
+            response = _service.Move(source, destination);
+            Assert.AreEqual(response, "c:>");
+
+            _service.CreateDirectory(source);
+            response = _service.Move(source, destination);
+            Assert.AreEqual(response, "Error: Destination already has such directory or file\r\nc:>");
         }
     }
 }

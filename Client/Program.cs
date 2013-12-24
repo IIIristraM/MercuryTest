@@ -18,72 +18,39 @@ namespace Client
                 {
                     using (var client = new FileManagerClient())
                     {
-                        var response = client.ExecuteCommand("connect konstantin" + Guid.NewGuid());
-                        Console.WriteLine(response);
-
-                        response = client.ExecuteCommand("md temp");
-                        Console.WriteLine(response);
-
+                        var response = client.ExecuteCommand("connect localhost:8734 konstantin" + Guid.NewGuid());
+                        response = client.ExecuteCommand("md temp");                        
                         response = client.ExecuteCommand("md temp2");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand("md temp3");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"md temp\temp4");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"md temp\temp4\app");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"md temp\temp4\app2");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"md temp\temp4\app3");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"mf temp\temp4\app3\1.txt");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"lock temp\temp4\app3\1.txt");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand("cd temp");
-                        Console.WriteLine(response);
-                        
                         response = client.ExecuteCommand(@"deltree c:\temp\temp4");
-                        Console.WriteLine(response);
-
-                        response = client.ExecuteCommand(@"md temp5");
-                        Console.WriteLine(response);
-
+                        response = client.ExecuteCommand(@"md temp5");                       
                         response = client.ExecuteCommand(@"mf temp5\1.txt");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"mf temp5\2.txt");
-                        Console.WriteLine(response);
-
-                        response = client.ExecuteCommand(@"deltree temp5");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"mf 1.txt");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"mf 2.txt");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"del 1.txt");
-                        Console.WriteLine(response);
-
                         response = client.ExecuteCommand(@"unlock temp4\app3\1.txt");
-                        Console.WriteLine(response);
-
+                        response = client.ExecuteCommand(@"copy c: c:\temp2");
+                        response = client.ExecuteCommand(@"move temp4 temp5");
+                        response = client.ExecuteCommand(@"mf c:\temp3\4.txt");
+                        response = client.ExecuteCommand(@"mf c:\temp3\5.txt");
+                        response = client.ExecuteCommand(@"md c:\temp3\temp6");
+                        response = client.ExecuteCommand(@"deltree c:\temp3");
+                        response = client.ExecuteCommand(@"move c:\temp\temp5\1.txt c:");
                         response = client.ExecuteCommand("quit");
-                        Console.WriteLine(response);
                     }
                 });
             }
             Task.WaitAll(clients);
+
+            Console.WriteLine("Enter commands:");
             
             using (var client = new FileManagerClient())
             {
