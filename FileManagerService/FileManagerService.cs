@@ -17,6 +17,7 @@ namespace FileManagerService
         private static ConcurrentDictionary<string, ConnectedUser> _connectedUsers = new ConcurrentDictionary<string, ConnectedUser>();
         private static object _syncDir = new object();
         private static object _syncFile = new object();
+        private static object _syncUser = new object();
 
         private ConnectedUser _currentUser;
 
@@ -84,9 +85,20 @@ namespace FileManagerService
         }
         private void Broadcast(string message)
         {
-            foreach (var connectedUser in _connectedUsers.Select(u => u.Value).Where(u => u.User.Name != _currentUser.User.Name))
+            lock (_syncUser)
             {
-                connectedUser.CallbackChannel.PrintNotification(message);
+                foreach (var connectedUser in _connectedUsers.Select(u => u.Value).Where(u => u.User.Name != _currentUser.User.Name))
+                {
+                    var u = connectedUser;
+                    try
+                    {
+                        u.CallbackChannel.PrintNotification(message);
+                    }
+                    catch(CommunicationObjectAbortedException e)
+                    {
+                        _connectedUsers.TryRemove(connectedUser.User.Name, out u);
+                    }
+                }
             }
         }
         private string[] ParsePath(string path)
@@ -306,7 +318,10 @@ namespace FileManagerService
                 ConnectedUser connectedUser = _connectedUsers.Select(u => u.Value).Where(u => u.SessionId == sessionId).FirstOrDefault();
                 if (connectedUser != null)
                 {
-                    _connectedUsers.TryRemove(connectedUser.User.Name, out connectedUser);
+                    lock (_syncUser)
+                    {
+                        _connectedUsers.TryRemove(connectedUser.User.Name, out connectedUser);
+                    }
                 }
                 return _disconnectMsg + "\r\n";
             }
@@ -409,7 +424,7 @@ namespace FileManagerService
                 string fullPath = parser[2];
                 lock (_syncDir)
                 {
-                    var dirs = _fileSystem.GetDirectories(d => (d.FullPath == fullPath) || d.FullPath.Contains(fullPath + @"\"));
+                    var dirs = _fileSystem.GetDirectories(d => (d.FullPath == fullPath) || d.FullPath.StartsWith(fullPath + @"\"));
                     if (dirs.Count() > 0)
                     {
                         lock (_syncFile)
@@ -631,7 +646,7 @@ namespace FileManagerService
                     string sourceTitle = parser[1];
                     string sourceParentPath = parser[0];
 
-                    var sourceTree = _fileSystem.GetDirectories(d => (d.FullPath == sourceFullPath) || (d.FullPath.Contains(sourceFullPath + @"\")));
+                    var sourceTree = _fileSystem.GetDirectories(d => (d.FullPath == sourceFullPath) || (d.FullPath.StartsWith(sourceFullPath + @"\")));
                     if (sourceTree.Any())
                     {
                         string path = String.Empty;
@@ -648,7 +663,7 @@ namespace FileManagerService
                         {
                             lock (_syncFile)
                             {
-                                var files = _fileSystem.GetFiles(f => f.FullPath.Contains(sourceFullPath + @"\"));
+                                var files = _fileSystem.GetFiles(f => f.FullPath.StartsWith(sourceFullPath + @"\"));
                                 if (!files.Any(f => f.LockingUsers.Any()))
                                 {
                                     foreach (var file in files)

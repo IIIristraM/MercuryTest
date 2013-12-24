@@ -11,7 +11,7 @@ namespace Client
     {
         static void Main(string[] args)
         {
-            Task[] clients = new Task[100];
+            Task[] clients = new Task[500];
             for (var i = 0; i < clients.Length; i++)
             {
                 clients[i] = Task.Run(() =>
