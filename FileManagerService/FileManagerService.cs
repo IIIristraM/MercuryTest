@@ -15,6 +15,8 @@ namespace FileManagerService
     {
         private static IFileSystemService _fileSystem;
         private static ConcurrentDictionary<string, ConnectedUser> _connectedUsers = new ConcurrentDictionary<string, ConnectedUser>();
+        private static object _syncDir = new object();
+        private static object _syncFile = new object();
 
         private ConnectedUser _currentUser;
 
@@ -28,18 +30,36 @@ namespace FileManagerService
         private string _twiceLockError = "Error: File can be locked only once";
         private string _fileLockedError = "Error: File is locked";
         private string _unlockError = "Error: You haven't lock this file";
-
-        #region Private Methods
+        private string _sourceNotExistsError = "Error: Source directory or file doesn't exist";
+        private string _destinationNotExistsError = "Error: Destination directory doesn't exist";
+        private string _destinationHasContent = "Error: Destination already has such directory or file";
 
         public FileManagerService(IFileSystemService fileSystem)
         {
             _fileSystem = fileSystem;
-            var root = new Directory() { 
+            var root = new Directory()
+            {
                 Title = "c:",
                 FullPath = "c:"
             };
             _fileSystem.AddDirectory(ref root);
         }
+
+        #region Protected Methods
+
+        protected virtual string GetSessionId()
+        {
+            return OperationContext.Current.SessionId;
+        }
+        protected virtual IClientNotification GetCallbackChanel()
+        {
+            return OperationContext.Current.GetCallbackChannel<IClientNotification>();
+        }
+
+        #endregion
+
+        #region Private Methods
+
         private bool RegisterUser(string userName)
         {
             var localUser = _fileSystem.GetUsers(u => u.Name == userName).FirstOrDefault();
@@ -54,9 +74,9 @@ namespace FileManagerService
             var user = new ConnectedUser()
             {
                 User = localUser,
-                CurrentDirectory = _defaultDirectory/*,
-                SessionId = OperationContext.Current.SessionId,
-                CallbackChannel = OperationContext.Current.GetCallbackChannel<IClientNotification>()*/
+                CurrentDirectory = _defaultDirectory,
+                SessionId = GetSessionId(),
+                CallbackChannel = GetCallbackChanel()
             };
             var success = _connectedUsers.TryAdd(user.User.Name, user);
             if (success) _currentUser = user;
@@ -87,6 +107,7 @@ namespace FileManagerService
                 {
                     dirTitle = path;
                 }
+                fullPath = parentPath + ((!String.IsNullOrEmpty(dirTitle)) ? @"\" + dirTitle : String.Empty);
             }
             else
             {
@@ -94,13 +115,15 @@ namespace FileManagerService
                 {
                     parentPath += path.Substring(0, path.LastIndexOf(@"\"));
                     dirTitle = path.Substring(path.LastIndexOf(@"\") + 1);
+                    fullPath = parentPath + ((!String.IsNullOrEmpty(dirTitle)) ? @"\" + dirTitle : String.Empty);
                 }
                 else
                 {
-                    parentPath = path;
+                    parentPath = String.Empty;
+                    dirTitle = path;
+                    fullPath = ((!String.IsNullOrEmpty(parentPath)) ? parentPath + @"\" : String.Empty) + dirTitle;
                 }
             }
-            fullPath = parentPath + ((!String.IsNullOrEmpty(dirTitle)) ? @"\" + dirTitle : String.Empty);
 
             var result = new string[3];
             result[0] = parentPath;
@@ -169,17 +192,51 @@ namespace FileManagerService
             }
             return postfix;
         }
+        private void CopyTree(Directory directory, Directory root)
+        {
+            var dirCopy = new Directory()
+            {
+                Title = directory.Title,
+                Root = root,
+                FullPath = root.FullPath + @"\" + directory.Title
+            };
+
+            foreach (var subdir in directory.Subdirectories)
+            {
+                CopyTree(subdir, dirCopy);
+            }
+
+            foreach (var file in directory.Files)
+            {
+                CopyFile(file, dirCopy);
+            }
+
+            _fileSystem.AddDirectory(ref dirCopy);
+        }
+        private void CopyFile(File file, Directory destination)
+        {
+            var fileCopy = new File()
+            {
+                Directory = destination,
+                Title = file.Title,
+                FullPath = destination.FullPath + @"\" + file.Title
+            };
+            _fileSystem.AddFile(ref fileCopy);
+        }
 
         #endregion
+
+        #region Public Methods
 
         public string ExecuteCommand(string command)
         {
             command = command.ToLower();
-            var pattern = new Regex(@"(\S*)(\s*)(\S*)");
+            var pattern = new Regex(@"(\S*)(\s*)(\S*)(\s*)(\S*)");
             var match = pattern.Match(command);
 
             var com = match.Groups[1].Captures[0].Value;
             var param = match.Groups[3].Captures[0].Value;
+            var param2 = match.Groups[5].Captures[0].Value;
 
             string response;
             switch (com)
@@ -217,6 +274,12 @@ namespace FileManagerService
                 case "unlock":
                     response = Unlock(param);
                     break;
+                case "copy":
+                    response = Copy(param, param2);
+                    break;
+                case "move":
+                    response = Move(param, param2);
+                    break;
                 default:
                     response = _unknownCommandError;
                     break;
@@ -231,32 +294,23 @@ namespace FileManagerService
                 {
                     return _currentUser.CurrentDirectory + ">";
                 }
-                else
-                {
-                    return _connectionError;
-                }
+                return _connectionError + "\r\n";
             }
-            else
-            {
-                return _connectionError;
-            }
+            return _connectionError + "\r\n";
         }
         public string Quit()
         {
             if (_currentUser != null)
             {
-                var sessionId = OperationContext.Current.SessionId;
+                var sessionId = GetSessionId();
                 ConnectedUser connectedUser = _connectedUsers.Select(u => u.Value).Where(u => u.SessionId == sessionId).FirstOrDefault();
                 if (connectedUser != null)
                 {
                     _connectedUsers.TryRemove(connectedUser.User.Name, out connectedUser);
                 }
-                return _disconnectMsg;
+                return _disconnectMsg + "\r\n";
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
         public string CreateDirectory(string path)
         {
@@ -269,32 +323,27 @@ namespace FileManagerService
 
                 if (!_fileSystem.GetDirectories(d => d.FullPath == fullPath).Any())
                 {
-                    var parentDir = _fileSystem.GetDirectories(d => d.FullPath == parentPath).FirstOrDefault();
-                    if (parentDir != null)
+                    lock (_syncDir)
                     {
-                        var directory = new Directory()
+                        var parentDir = _fileSystem.GetDirectories(d => d.FullPath == parentPath).FirstOrDefault();
+                        if (parentDir != null)
                         {
-                            Title = dirTitle,
-                            Root = parentDir,
-                            FullPath = fullPath
-                        };
-                        _fileSystem.AddDirectory(ref directory);
-                        return _currentUser.CurrentDirectory + ">";
-                    }
-                    else
-                    {
+                            var directory = new Directory()
+                            {
+                                Title = dirTitle,
+                                Root = parentDir,
+                                FullPath = fullPath
+                            };
+                            _fileSystem.AddDirectory(ref directory);
+                            Broadcast(_currentUser.User.Name + " create directory '" + fullPath + "'\r\n");
+                            return _currentUser.CurrentDirectory + ">";
+                        }
                         return "Error: Directory '" + parentPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
                     }
                 }
-                else
-                {
-                    return "Error: Directory '" + fullPath + "' already exists\r\n" + _currentUser.CurrentDirectory + ">";
-                }
+                return "Error: Directory '" + fullPath + "' already exists\r\n" + _currentUser.CurrentDirectory + ">";
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
         public string ChangeDirectory(string path)
         {
@@ -308,15 +357,9 @@ namespace FileManagerService
                     _currentUser.CurrentDirectory = fullPath;
                     return fullPath + ">";
                 }
-                else
-                {
-                    return "Error: Directory '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
-                }
+                return "Error: Directory '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
         public string DeleteDirectory(string path)
         {
@@ -327,44 +370,36 @@ namespace FileManagerService
                 var dir = _fileSystem.GetDirectories(d => d.FullPath == fullPath).FirstOrDefault();
                 if (dir != null)
                 {
-                    if (dir.Subdirectories.Count() == 0)
+                    if (dir.FullPath != _currentUser.CurrentDirectory)
                     {
-                        if (dir.FullPath != _currentUser.CurrentDirectory)
+                        lock (_syncDir)
                         {
-                            var files = dir.Files;
-                            if (!files.Where(f => f.LockingUsers.Any()).Any())
+                            if (dir.Subdirectories.Count() == 0)
                             {
-                                foreach (var file in files)
+                                lock (_syncFile)
                                 {
-                                    _fileSystem.RemoveFile(file);
+                                    var files = dir.Files;
+                                    if (!files.Where(f => f.LockingUsers.Any()).Any())
+                                    {
+                                        foreach (var file in files)
+                                        {
+                                            _fileSystem.RemoveFile(file);
+                                        }
+                                        _fileSystem.RemoveDirectory(dir);
+                                        Broadcast(_currentUser.User.Name + " delete directory '" + fullPath + "'\r\n");
+                                        return _currentUser.CurrentDirectory + ">";
+                                    }
+                                    return "Error: Directory '" + dir.FullPath + "' has locked files\r\n" + _currentUser.CurrentDirectory + ">";
                                 }
-                                _fileSystem.RemoveDirectory(dir);
-                                return _currentUser.CurrentDirectory + ">";
                             }
-                            else
-                            {
-                                return "Error: Directory '" + dir.FullPath + "' has locked files\r\n" + _currentUser.CurrentDirectory + ">";
-                            }
-                        }
-                        else
-                        {
-                            return _deleteCurrentDirError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                            return _existingSubdirError + "\r\n" + _currentUser.CurrentDirectory + ">";
                         }
                     }
-                    else
-                    {
-                        return _existingSubdirError + "\r\n" + _currentUser.CurrentDirectory + ">";
-                    }
+                    return _deleteCurrentDirError + "\r\n" + _currentUser.CurrentDirectory + ">";
                 }
-                else
-                {
-                    return "Error: Directory '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
-                }
+                return "Error: Directory '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
         public string DeleteTree(string path)
         {
@@ -372,42 +407,37 @@ namespace FileManagerService
             {
                 var parser = ParsePath(path);
                 string fullPath = parser[2];
-                var dirs = _fileSystem.GetDirectories(d => (d.FullPath == fullPath) || d.FullPath.Contains(fullPath + @"\"));
-                if (dirs.Count() > 0)
+                lock (_syncDir)
                 {
-                    if (!dirs.Where(d => d.Files.Any(f => f.LockingUsers.Any())).Any())
+                    var dirs = _fileSystem.GetDirectories(d => (d.FullPath == fullPath) || d.FullPath.Contains(fullPath + @"\"));
+                    if (dirs.Count() > 0)
                     {
-                        if (!dirs.Where(d => d.FullPath == _currentUser.CurrentDirectory).Any())
+                        lock (_syncFile)
                         {
-                            foreach (var dir in dirs)
+                            if (!dirs.Where(d => d.Files.Any(f => f.LockingUsers.Any())).Any())
                             {
-                                _fileSystem.RemoveDirectory(dir);
-                                foreach (var file in dir.Files)
+                                if (!dirs.Where(d => d.FullPath == _currentUser.CurrentDirectory).Any())
                                 {
-                                    _fileSystem.RemoveFile(file);
+                                    foreach (var dir in dirs)
+                                    {
+                                        _fileSystem.RemoveDirectory(dir);
+                                        foreach (var file in dir.Files)
+                                        {
+                                            _fileSystem.RemoveFile(file);
+                                        }
+                                    }
+                                    Broadcast(_currentUser.User.Name + " deltree '" + fullPath + "'\r\n");
+                                    return _currentUser.CurrentDirectory + ">";
                                 }
+                                return _deleteCurrentDirError + "\r\n" + _currentUser.CurrentDirectory + ">";
                             }
-                            return _currentUser.CurrentDirectory + ">";
-                        }
-                        else
-                        {
-                            return _deleteCurrentDirError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                            return "Error: Directory '" + fullPath + "' has locked files\r\n" + _currentUser.CurrentDirectory + ">";
                         }
                     }
-                    else
-                    {
-                        return "Error: Directory '" + fullPath + "' has locked files\r\n" + _currentUser.CurrentDirectory + ">";
-                    }
-                }
-                else
-                {
                     return "Error: Directory '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
                 }
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
         public string CreateFile(string path)
         {
@@ -420,32 +450,27 @@ namespace FileManagerService
 
                 if (!_fileSystem.GetFiles(d => d.FullPath == fullPath).Any())
                 {
-                    var parentDir = _fileSystem.GetDirectories(d => d.FullPath == parentPath).FirstOrDefault();
-                    if (parentDir != null)
+                    lock (_syncDir)
                     {
-                        var file = new File()
+                        var parentDir = _fileSystem.GetDirectories(d => d.FullPath == parentPath).FirstOrDefault();
+                        if (parentDir != null)
                         {
-                            Title = fileTitle,
-                            Directory = parentDir,
-                            FullPath = fullPath
-                        };
-                        _fileSystem.AddFile(ref file);
-                        return _currentUser.CurrentDirectory + ">";
-                    }
-                    else
-                    {
+                            var file = new File()
+                            {
+                                Title = fileTitle,
+                                Directory = parentDir,
+                                FullPath = fullPath
+                            };
+                            _fileSystem.AddFile(ref file);
+                            Broadcast(_currentUser.User.Name + " create file '" + fullPath + "'\r\n");
+                            return _currentUser.CurrentDirectory + ">";
+                        }
                         return "Error: Directory '" + parentPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
                     }
                 }
-                else
-                {
-                    return "Error: File '" + fullPath + "' already exists\r\n" + _currentUser.CurrentDirectory + ">";
-                }
+                return "Error: File '" + fullPath + "' already exists\r\n" + _currentUser.CurrentDirectory + ">";
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
         public string DeleteFile(string path)
         {
@@ -456,27 +481,46 @@ namespace FileManagerService
                 var file = _fileSystem.GetFiles(d => d.FullPath == fullPath).FirstOrDefault();
                 if (file != null)
                 {
-                    if (!file.LockingUsers.Any())
+                    lock (_syncFile)
                     {
-                        _fileSystem.RemoveFile(file);
-                        return _currentUser.CurrentDirectory + ">";
-                    }
-                    else
-                    {
+                        if (!file.LockingUsers.Any())
+                        {
+                            _fileSystem.RemoveFile(file);
+                            Broadcast(_currentUser.User.Name + " delete file '" + fullPath + "'\r\n");
+                            return _currentUser.CurrentDirectory + ">";
+                        }
                         return _fileLockedError + "\r\n" + _currentUser.CurrentDirectory + ">";
                     }
                 }
-                else
+                return "Error: File '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
+            }
+            return _authError + "\r\n";
+        }
+        public string Lock(string path)
+        {
+            if (_currentUser != null)
+            {
+                var parser = ParsePath(path);
+                string fullPath = parser[2];
+                lock (_syncFile)
                 {
+                    var file = _fileSystem.GetFiles(d => d.FullPath == fullPath).FirstOrDefault();
+                    if (file != null)
+                    {
+                        if (!file.LockingUsers.Where(u => u.Name == _currentUser.User.Name).Any())
+                        {
+                            _currentUser.User.LockedFiles.Add(file);
+                            Broadcast(_currentUser.User.Name + " lock file '" + fullPath + "'\r\n");
+                            return _currentUser.CurrentDirectory + ">";
+                        }
+                        return _twiceLockError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                    }
                     return "Error: File '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
                 }
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
-        public string Lock(string path)
+        public string Unlock(string path)
         {
             if (_currentUser != null)
             {
@@ -485,62 +529,180 @@ namespace FileManagerService
                 var file = _fileSystem.GetFiles(d => d.FullPath == fullPath).FirstOrDefault();
                 if (file != null)
                 {
-                    if (!file.LockingUsers.Where(u => u.Name == _currentUser.User.Name).Any())
-                    {
-                        _currentUser.User.LockedFiles.Add(file);
-                        return _currentUser.CurrentDirectory + ">";
-                    }
-                    else
-                    {
-                        return _twiceLockError + "\r\n" + _currentUser.CurrentDirectory + ">";
-                    }
-                }
-                else
-                {
-                    return "Error: File '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
-                }
-            }
-            else
-            {
-                return _authError;
-            }
-        }
-        public string Unlock(string path)
-        {
-            if (_currentUser != null)
-            {
-                 var parser = ParsePath(path);
-                string fullPath = parser[2];
-                var file = _fileSystem.GetFiles(d => d.FullPath == fullPath).FirstOrDefault();
-                if (file != null)
-                {
                     if (file.LockingUsers.Where(u => u.Name == _currentUser.User.Name).Any())
                     {
-                        _currentUser.User.LockedFiles.Remove(file);
-                        return _currentUser.CurrentDirectory + ">";
+                        lock (_syncFile)
+                        {
+                            _currentUser.User.LockedFiles.Remove(file);
+                            Broadcast(_currentUser.User.Name + " unlock file '" + fullPath + "'\r\n");
+                            return _currentUser.CurrentDirectory + ">";
+                        }
                     }
-                    else
-                    {
-                        return _unlockError + "\r\n" + _currentUser.CurrentDirectory + ">";
-                    }
+                    return _unlockError + "\r\n" + _currentUser.CurrentDirectory + ">";
                 }
-                else
-                {
-                    return "Error: File '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
-                }
+                return "Error: File '" + fullPath + "' doesn't exist\r\n" + _currentUser.CurrentDirectory + ">";
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
         public string Copy(string sourcePath, string destinationPath)
         {
-            throw new NotImplementedException();
+            if (_currentUser != null)
+            {
+                var parser = ParsePath(destinationPath);
+                string destinationFullPath = parser[2];
+
+                lock (_syncDir)
+                {
+                    var destination = _fileSystem.GetDirectories(d => d.FullPath == destinationFullPath).FirstOrDefault();
+                    if (destination == null)
+                    {
+                        return _destinationNotExistsError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                    }
+
+                    parser = ParsePath(sourcePath);
+                    string sourceFullPath = parser[2];
+                    string sourceTitle = parser[1];
+                    string sourceParentPath = parser[0];
+
+                    var sourceDir = _fileSystem.GetDirectories(d => d.FullPath == sourceFullPath).FirstOrDefault();
+                    if (sourceDir != null)
+                    {
+                        string path = String.Empty;
+                        if (!String.IsNullOrEmpty(sourceParentPath))
+                        {
+                            path = sourceFullPath.Replace(sourceParentPath, destinationFullPath);
+                        }
+                        else
+                        {
+                            //когда пытаются скопировать рутовый каталог
+                            path = destinationFullPath + @"\" + sourceTitle;
+                        }
+                        if (!_fileSystem.GetDirectories(f => f.FullPath == path).Any())
+                        {
+                            lock (_syncFile)
+                            {
+                                CopyTree(sourceDir, destination);
+                                Broadcast(_currentUser.User.Name + " copy '" + sourceFullPath + "' to '" + destinationFullPath + "'\r\n");
+                                return _currentUser.CurrentDirectory + ">";
+                            }
+                        }
+                        return _destinationHasContent + "\r\n" + _currentUser.CurrentDirectory + ">";
+                    }
+                    else
+                    {
+                        lock (_syncFile)
+                        {
+                            var sourceFile = _fileSystem.GetFiles(f => f.FullPath == sourceFullPath).FirstOrDefault();
+                            if (sourceFile != null)
+                            {
+                                var path = sourceFullPath.Replace(sourceParentPath, destinationFullPath);
+                                if (!_fileSystem.GetFiles(f => f.FullPath == path).Any())
+                                {
+                                    CopyFile(sourceFile, destination);
+                                    Broadcast(_currentUser.User.Name + " copy '" + sourceFullPath + "' to '" + destinationFullPath + "'\r\n");
+                                    return _currentUser.CurrentDirectory + ">";
+                                }
+                                return _destinationHasContent + "\r\n" + _currentUser.CurrentDirectory + ">";
+                            }
+                            return _sourceNotExistsError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                        }
+                    }
+                }
+            }
+            return _authError + "\r\n";
         }
         public string Move(string sourcePath, string destinationPath)
         {
-            throw new NotImplementedException();
+            if (_currentUser != null)
+            {
+                var parser = ParsePath(destinationPath);
+                string destinationFullPath = parser[2];
+
+                lock (_syncDir)
+                {
+                    var destination = _fileSystem.GetDirectories(d => d.FullPath == destinationFullPath).FirstOrDefault();
+                    if (destination == null)
+                    {
+                        return _destinationNotExistsError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                    }
+
+                    parser = ParsePath(sourcePath);
+                    string sourceFullPath = parser[2];
+                    string sourceTitle = parser[1];
+                    string sourceParentPath = parser[0];
+
+                    var sourceTree = _fileSystem.GetDirectories(d => (d.FullPath == sourceFullPath) || (d.FullPath.Contains(sourceFullPath + @"\")));
+                    if (sourceTree.Any())
+                    {
+                        string path = String.Empty;
+                        if (!String.IsNullOrEmpty(sourceParentPath))
+                        {
+                            path = sourceFullPath.Replace(sourceParentPath, destinationFullPath);
+                        }
+                        else
+                        {
+                            //когда пытаются скопировать рутовый каталог
+                            path = destinationFullPath + @"\" + sourceTitle;
+                        }
+                        if (!_fileSystem.GetDirectories(f => f.FullPath == path).Any())
+                        {
+                            lock (_syncFile)
+                            {
+                                var files = _fileSystem.GetFiles(f => f.FullPath.Contains(sourceFullPath + @"\"));
+                                if (!files.Any(f => f.LockingUsers.Any()))
+                                {
+                                    foreach (var file in files)
+                                    {
+                                        var f = file;
+                                        _fileSystem.RemoveFile(f);
+                                        f.FullPath = f.FullPath.Replace(sourceParentPath, destinationFullPath);
+                                        _fileSystem.AddFile(ref f);
+                                    }
+                                    foreach (var dir in sourceTree)
+                                    {
+                                        var d = dir;
+                                        _fileSystem.RemoveDirectory(d);
+                                        dir.FullPath = dir.FullPath.Replace(sourceParentPath, destinationFullPath);
+                                        if (dir.FullPath == destinationFullPath + @"\" + sourceTitle) dir.Root = destination;
+                                        _fileSystem.AddDirectory(ref d);
+                                    }
+                                    Broadcast(_currentUser.User.Name + " move '" + sourceFullPath + "' to '" + destinationFullPath + "'\r\n");
+                                    return _currentUser.CurrentDirectory + ">";
+                                }
+                                return "Error: Directory '" + sourceFullPath + "' has locked files\r\n" + _currentUser.CurrentDirectory + ">";
+                            }
+                        }
+                        return _destinationHasContent + "\r\n" + _currentUser.CurrentDirectory + ">";
+                    }
+                    else
+                    {
+                        lock (_syncFile)
+                        {
+                            var sourceFile = _fileSystem.GetFiles(f => f.FullPath == sourceFullPath).FirstOrDefault();
+                            if (sourceFile != null)
+                            {
+                                 var path = sourceFullPath.Replace(sourceParentPath, destinationFullPath);
+                                 if (!_fileSystem.GetFiles(f => f.FullPath == path).Any())
+                                 {
+                                     if (!sourceFile.LockingUsers.Any())
+                                     {
+                                         _fileSystem.RemoveFile(sourceFile);
+                                         sourceFile.FullPath = path;
+                                         sourceFile.Directory = destination;
+                                         _fileSystem.AddFile(ref sourceFile);
+                                         Broadcast(_currentUser.User.Name + " move '" + sourceFullPath + "' to '" + destinationFullPath + "'\r\n");
+                                         return _currentUser.CurrentDirectory + ">";
+                                     }
+                                     return _fileLockedError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                                 }
+                                return _destinationHasContent + "\r\n" + _currentUser.CurrentDirectory + ">";
+                            }
+                            return _sourceNotExistsError + "\r\n" + _currentUser.CurrentDirectory + ">";
+                        }
+                    }
+                }
+            }
+            return _authError + "\r\n";
         }
         public string Print()
         {
@@ -555,10 +717,9 @@ namespace FileManagerService
                 }
                 return tree.Append(_currentUser.CurrentDirectory + ">").ToString();
             }
-            else
-            {
-                return _authError;
-            }
+            return _authError + "\r\n";
         }
+
+        #endregion
     }
 }
