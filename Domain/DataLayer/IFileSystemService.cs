@@ -7,6 +7,7 @@ using System.Text;
 
 namespace Domain
 {
+    //интерфейс работы с файловой системой
     public interface IFileSystemService
     {
         bool AddDirectory(ref Directory directory);

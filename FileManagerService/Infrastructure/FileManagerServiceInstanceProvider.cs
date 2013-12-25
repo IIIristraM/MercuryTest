@@ -9,6 +9,7 @@ using Domain;
 
 namespace FileManagerService
 {
+    //необходим для разделения конкретной реализации сервиса и конкретной реализации файловой системы 
     public class FileManagerServiceInstanceProvider : IInstanceProvider
     {
         private IFileSystemService _fileSystem;

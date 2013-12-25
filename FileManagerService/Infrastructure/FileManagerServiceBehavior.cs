@@ -11,6 +11,7 @@ using Domain;
 
 namespace FileManagerService
 {
+    //переопределяем поведение сервиса для создания кастомных инстансов
     public class FileManagerServiceBehavior : IServiceBehavior
     {
         private IFileSystemService _fileSystem;

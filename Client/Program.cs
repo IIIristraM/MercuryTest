@@ -11,6 +11,7 @@ namespace Client
     {
         static void Main(string[] args)
         {
+            //проверка работы параллельно работающих клиентов, создается начальное дерево каталогов
             Task[] clients = new Task[500];
             for (var i = 0; i < clients.Length; i++)
             {
@@ -50,6 +51,7 @@ namespace Client
             }
             Task.WaitAll(clients);
 
+            //сам клиент
             Console.WriteLine("Enter commands:");
             
             using (var client = new FileManagerClient())
