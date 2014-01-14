@@ -17,6 +17,7 @@ namespace FileManagerService
         private static ConcurrentDictionary<string, ConnectedUser> _connectedUsers = new ConcurrentDictionary<string, ConnectedUser>();
         private static object _syncDir = new object();
         private static object _syncFile = new object();
+        private static object _syncCallback = new object();
 
         private ConnectedUser _currentUser;
 
@@ -306,7 +307,10 @@ namespace FileManagerService
                 ConnectedUser connectedUser = _connectedUsers.Select(u => u.Value).Where(u => u.SessionId == sessionId).FirstOrDefault();
                 if (connectedUser != null)
                 {
-                    _connectedUsers.TryRemove(connectedUser.User.Name, out connectedUser);
+                    lock (_syncCallback)
+                    {
+                        _connectedUsers.TryRemove(connectedUser.User.Name, out connectedUser);
+                    }
                 }
                 return _disconnectMsg + "\r\n";
             }
