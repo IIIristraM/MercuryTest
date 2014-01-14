@@ -13,12 +13,15 @@ namespace FileManagerService
     [ServiceBehavior(InstanceContextMode = InstanceContextMode.PerSession, ConcurrencyMode = ConcurrencyMode.Multiple)]
     public class FileManagerService : IFileManagerService
     {
+        //Файловая система
         private static IFileSystemService _fileSystem;
+        //Список подключенных в данный момент клиентов
         private static ConcurrentDictionary<string, ConnectedUser> _connectedUsers = new ConcurrentDictionary<string, ConnectedUser>();
+        //Объекты для синхронизации работы клиентов
         private static object _syncDir = new object();
         private static object _syncFile = new object();
-        private static object _syncCallback = new object();
-
+        private static object _syncUser = new object();
+        //Текущий пользователь
         private ConnectedUser _currentUser;
 
         private string _defaultDirectory = "c:";
@@ -26,7 +29,7 @@ namespace FileManagerService
         private string _disconnectMsg = "Disconnect comlete";
         private string _authError = "Error: You need to login";
         private string _unknownCommandError = "Error: Unknown command";
-        private string _deleteCurrentDirError = "Error: Current directory can't be removed";
+        private string _deleteCurrentDirError = "Error: Current directory can't be moved or deleted";
         private string _existingSubdirError = "Error: Directory has subdirectories";
         private string _twiceLockError = "Error: File can be locked only once";
         private string _fileLockedError = "Error: File is locked";
@@ -38,6 +41,8 @@ namespace FileManagerService
         public FileManagerService(IFileSystemService fileSystem)
         {
             _fileSystem = fileSystem;
+            //создаем корневой каталог
+            //можно ничего не синхронизировать, т.к. в файловой системе создать два каталога с одинаковым FullPath невозможно
             var root = new Directory()
             {
                 Title = "c:",
@@ -46,6 +51,7 @@ namespace FileManagerService
             _fileSystem.AddDirectory(ref root);
         }
 
+        //Эти методы нужны для облегчения тестирования
         #region Protected Methods
 
         protected virtual string GetSessionId()
@@ -61,8 +67,10 @@ namespace FileManagerService
 
         #region Private Methods
 
+        //неблокирующая регистрация пользователя при вызове connect
         private bool RegisterUser(string userName)
         {
+            //если пользователя нет в файловой системе, создаем, если есть - извлекаем
             var localUser = _fileSystem.GetUsers(u => u.Name == userName).FirstOrDefault();
             if (localUser == null)
             {
@@ -79,26 +87,50 @@ namespace FileManagerService
                 SessionId = GetSessionId(),
                 CallbackChannel = GetCallbackChanel()
             };
+            //пробуем добавить к пользователям онлайн
+            //если одновременно будет происходмить добавление нескольких пользователей, то true вернется только одному
             var success = _connectedUsers.TryAdd(user.User.Name, user);
             if (success) _currentUser = user;
             return success;
         }
+
+        //рассылка сообщения всем подключенным клиентам
         private void Broadcast(string message)
         {
-            foreach (var connectedUser in _connectedUsers.Select(u => u.Value).Where(u => u.User.Name != _currentUser.User.Name))
+            //лочим, чтобы во время выполнения клиент не мог отключится, не получив оповещения
+            lock (_syncUser)
             {
-                connectedUser.CallbackChannel.PrintNotification(message);
+                foreach (var connectedUser in _connectedUsers.Select(u => u.Value).Where(u => u.User.Name != _currentUser.User.Name))
+                {
+                    var u = connectedUser;
+                    try
+                    {
+                        u.CallbackChannel.PrintNotification(message);
+                    }
+                    catch(CommunicationObjectAbortedException e)
+                    {
+                        //на случай, если клиент был закрыт без вызова quit, и канал остался висеть
+                        _connectedUsers.TryRemove(connectedUser.User.Name, out u);
+                    }
+                }
             }
         }
+
+        //парсинг пути, полученного от клиента
         private string[] ParsePath(string path)
         {
+            //полный путь к родительскому каталогу
             string parentPath = String.Empty;
+            //название файла и ли каталога, к которому указан путь
             string dirTitle = String.Empty;
+            //полный путь к указанному файлу или каталогу
             string fullPath = String.Empty;
 
+            //проверяем, указан относительный путь или абсолютный
             if (path.IndexOf(":") == -1)
             {
                 parentPath = _currentUser.CurrentDirectory;
+                //проверяем простой путь или составной
                 if (path.LastIndexOf(@"\") != -1)
                 {
                     parentPath += @"\" + path.Substring(0, path.LastIndexOf(@"\"));
@@ -112,6 +144,7 @@ namespace FileManagerService
             }
             else
             {
+                //проверяем простой путь или составной
                 if (path.LastIndexOf(@"\") != -1)
                 {
                     parentPath += path.Substring(0, path.LastIndexOf(@"\"));
@@ -132,6 +165,8 @@ namespace FileManagerService
             result[2] = fullPath;
             return result;
         }
+
+        //рекурсивное построение дерева каталогов
         private void PrintDirectory(Directory dir, StringBuilder tree, int level)
         {
             var prefix = GeneratePrefix(level - 1);
@@ -193,13 +228,17 @@ namespace FileManagerService
             }
             return postfix;
         }
+
+        //рекурсивное копирование каталога со всем его содержимым
         private void CopyTree(Directory directory, Directory root)
         {
+            //удаляем ":", чтобы избежать неверной интерпритации относительного/абсолютного пути
+            var title = directory.Title.Replace(":", "");
             var dirCopy = new Directory()
             {
-                Title = directory.Title,
+                Title = title,
                 Root = root,
-                FullPath = root.FullPath + @"\" + directory.Title
+                FullPath = root.FullPath + @"\" + title
             };
 
             foreach (var subdir in directory.Subdirectories)
@@ -228,10 +267,12 @@ namespace FileManagerService
         #endregion
 
         #region Public Methods
-
+        
+        //парсит команду и вызывает соответствующий метод сервиса
         public string ExecuteCommand(string command)
         {
             command = command.ToLower();
+            command = command.Trim();
             var pattern = new Regex(@"(\S*)(\s*)(\S*)(\s*)(\S*)");
             var match = pattern.Match(command);
 
@@ -282,13 +323,15 @@ namespace FileManagerService
                     response = Move(param, param2);
                     break;
                 default:
-                    response = _unknownCommandError;
+                    response = _unknownCommandError + "\r\n" + ((_currentUser != null) ? _currentUser.CurrentDirectory + ">" : String.Empty);
                     break;
             }
             return response;
         }
         public string Connect(string userName)
         {
+            //первая проверка не дает гарантии того, что пользователи, вызвавшие одновременно connect с одним логином, не пройдут,
+            //но может сэкономить время выполненя, если один уже залогинен
             if (!_connectedUsers.ContainsKey(userName))
             {
                 if (RegisterUser(userName))
@@ -304,10 +347,12 @@ namespace FileManagerService
             if (_currentUser != null)
             {
                 var sessionId = GetSessionId();
+                //проверяем конектился ли пользователь в рамках текущей сессии
                 ConnectedUser connectedUser = _connectedUsers.Select(u => u.Value).Where(u => u.SessionId == sessionId).FirstOrDefault();
                 if (connectedUser != null)
                 {
-                    lock (_syncCallback)
+                    //лочим, чтобы не отвалились запущенные на данный момент рассылки опповещений клиентам
+                    lock (_syncUser)
                     {
                         _connectedUsers.TryRemove(connectedUser.User.Name, out connectedUser);
                     }
@@ -325,8 +370,10 @@ namespace FileManagerService
                 string dirTitle = parser[1];
                 string fullPath = parser[2];
 
+                //можно не синхронизировать, два каталога с одним FullPath все равно не могут быть добавлены в ConcurrentDictionary
                 if (!_fileSystem.GetDirectories(d => d.FullPath == fullPath).Any())
                 {
+                    //лочим, чтобы во время добавления каталога ни один каталог из вышележащей иерархии не был удален 
                     lock (_syncDir)
                     {
                         var parentDir = _fileSystem.GetDirectories(d => d.FullPath == parentPath).FirstOrDefault();
@@ -375,11 +422,12 @@ namespace FileManagerService
                 if (dir != null)
                 {
                     if (dir.FullPath != _currentUser.CurrentDirectory)
-                    {
+                    {   //лочим, чтобы во время удаления не могли быть добавлены подкаталоги
                         lock (_syncDir)
                         {
                             if (dir.Subdirectories.Count() == 0)
                             {
+                                //лочим, чтобы во время удаления не могли быть заблокированы файлы
                                 lock (_syncFile)
                                 {
                                     var files = dir.Files;
@@ -411,11 +459,13 @@ namespace FileManagerService
             {
                 var parser = ParsePath(path);
                 string fullPath = parser[2];
+                //лочим, чтобы во время удаления в удаляемую иерархию не могли быть добавлены каталоги
                 lock (_syncDir)
                 {
-                    var dirs = _fileSystem.GetDirectories(d => (d.FullPath == fullPath) || d.FullPath.Contains(fullPath + @"\"));
+                    var dirs = _fileSystem.GetDirectories(d => (d.FullPath == fullPath) || d.FullPath.StartsWith(fullPath + @"\"));
                     if (dirs.Count() > 0)
                     {
+                        //лочим, чтобы во время удаления не могли быть заблокированы файлы
                         lock (_syncFile)
                         {
                             if (!dirs.Where(d => d.Files.Any(f => f.LockingUsers.Any())).Any())
@@ -454,6 +504,7 @@ namespace FileManagerService
 
                 if (!_fileSystem.GetFiles(d => d.FullPath == fullPath).Any())
                 {
+                    //лочим, чтобы во время создания не мог быть удален родительский каталог
                     lock (_syncDir)
                     {
                         var parentDir = _fileSystem.GetDirectories(d => d.FullPath == parentPath).FirstOrDefault();
@@ -485,6 +536,7 @@ namespace FileManagerService
                 var file = _fileSystem.GetFiles(d => d.FullPath == fullPath).FirstOrDefault();
                 if (file != null)
                 {
+                    //лочим, чтобы избежать блокировки файла во время удаления
                     lock (_syncFile)
                     {
                         if (!file.LockingUsers.Any())
@@ -506,6 +558,7 @@ namespace FileManagerService
             {
                 var parser = ParsePath(path);
                 string fullPath = parser[2];
+                //лочим, чтобы избежать удаления файла во время блокировки
                 lock (_syncFile)
                 {
                     var file = _fileSystem.GetFiles(d => d.FullPath == fullPath).FirstOrDefault();
@@ -535,6 +588,7 @@ namespace FileManagerService
                 {
                     if (file.LockingUsers.Where(u => u.Name == _currentUser.User.Name).Any())
                     {
+                        //лочим, чтобы вызванные операции удаления дождались разблокировки файла
                         lock (_syncFile)
                         {
                             _currentUser.User.LockedFiles.Remove(file);
@@ -554,7 +608,7 @@ namespace FileManagerService
             {
                 var parser = ParsePath(destinationPath);
                 string destinationFullPath = parser[2];
-
+                //лочим, чтобы избежать создания и удаления каталогов, а также созания файлов во время выполнения
                 lock (_syncDir)
                 {
                     var destination = _fileSystem.GetDirectories(d => d.FullPath == destinationFullPath).FirstOrDefault();
@@ -579,10 +633,11 @@ namespace FileManagerService
                         else
                         {
                             //когда пытаются скопировать рутовый каталог
-                            path = destinationFullPath + @"\" + sourceTitle;
+                            path = destinationFullPath + @"\" + (sourceTitle = sourceTitle.Remove(sourceTitle.Length - 1)); //удаляем ":", чтобы избежать неверной интерпритации относительного/абсолютного пути
                         }
                         if (!_fileSystem.GetDirectories(f => f.FullPath == path).Any())
                         {
+                            //лочим, чтобы избежать удаления файлов
                             lock (_syncFile)
                             {
                                 CopyTree(sourceDir, destination);
@@ -594,6 +649,7 @@ namespace FileManagerService
                     }
                     else
                     {
+                        //лочим, чтобы избежать удаления файлов
                         lock (_syncFile)
                         {
                             var sourceFile = _fileSystem.GetFiles(f => f.FullPath == sourceFullPath).FirstOrDefault();
@@ -621,7 +677,7 @@ namespace FileManagerService
             {
                 var parser = ParsePath(destinationPath);
                 string destinationFullPath = parser[2];
-
+                //лочим, чтобы избежать создания и удаления каталогов, а также созания файлов во время выполнения
                 lock (_syncDir)
                 {
                     var destination = _fileSystem.GetDirectories(d => d.FullPath == destinationFullPath).FirstOrDefault();
@@ -635,51 +691,48 @@ namespace FileManagerService
                     string sourceTitle = parser[1];
                     string sourceParentPath = parser[0];
 
-                    var sourceTree = _fileSystem.GetDirectories(d => (d.FullPath == sourceFullPath) || (d.FullPath.Contains(sourceFullPath + @"\")));
+                    var sourceTree = _fileSystem.GetDirectories(d => (d.FullPath == sourceFullPath) || (d.FullPath.StartsWith(sourceFullPath + @"\")));
                     if (sourceTree.Any())
                     {
-                        string path = String.Empty;
-                        if (!String.IsNullOrEmpty(sourceParentPath))
+                        if (!sourceTree.Any(d => d.FullPath == _currentUser.CurrentDirectory))
                         {
-                            path = sourceFullPath.Replace(sourceParentPath, destinationFullPath);
-                        }
-                        else
-                        {
-                            //когда пытаются скопировать рутовый каталог
-                            path = destinationFullPath + @"\" + sourceTitle;
-                        }
-                        if (!_fileSystem.GetDirectories(f => f.FullPath == path).Any())
-                        {
-                            lock (_syncFile)
+                            var path =  sourceFullPath.Replace(sourceParentPath, destinationFullPath);
+                            if (!_fileSystem.GetDirectories(f => f.FullPath == path).Any())
                             {
-                                var files = _fileSystem.GetFiles(f => f.FullPath.Contains(sourceFullPath + @"\"));
-                                if (!files.Any(f => f.LockingUsers.Any()))
+                                //лочим, чтобы избежать удаления и блокировки файлов
+                                lock (_syncFile)
                                 {
-                                    foreach (var file in files)
+                                    var files = _fileSystem.GetFiles(f => f.FullPath.StartsWith(sourceFullPath + @"\"));
+                                    if (!files.Any(f => f.LockingUsers.Any()))
                                     {
-                                        var f = file;
-                                        _fileSystem.RemoveFile(f);
-                                        f.FullPath = f.FullPath.Replace(sourceParentPath, destinationFullPath);
-                                        _fileSystem.AddFile(ref f);
+                                        foreach (var file in files)
+                                        {
+                                            var f = file;
+                                            _fileSystem.RemoveFile(f);
+                                            f.FullPath = f.FullPath.Replace(sourceParentPath, destinationFullPath);
+                                            _fileSystem.AddFile(ref f);
+                                        }
+                                        foreach (var dir in sourceTree)
+                                        {
+                                            var d = dir;
+                                            _fileSystem.RemoveDirectory(d);
+                                            dir.FullPath = dir.FullPath.Replace(sourceParentPath, destinationFullPath);
+                                            if (dir.FullPath == destinationFullPath + @"\" + sourceTitle) dir.Root = destination;
+                                            _fileSystem.AddDirectory(ref d);
+                                        }
+                                        Broadcast(_currentUser.User.Name + " move '" + sourceFullPath + "' to '" + destinationFullPath + "'\r\n");
+                                        return _currentUser.CurrentDirectory + ">";
                                     }
-                                    foreach (var dir in sourceTree)
-                                    {
-                                        var d = dir;
-                                        _fileSystem.RemoveDirectory(d);
-                                        dir.FullPath = dir.FullPath.Replace(sourceParentPath, destinationFullPath);
-                                        if (dir.FullPath == destinationFullPath + @"\" + sourceTitle) dir.Root = destination;
-                                        _fileSystem.AddDirectory(ref d);
-                                    }
-                                    Broadcast(_currentUser.User.Name + " move '" + sourceFullPath + "' to '" + destinationFullPath + "'\r\n");
-                                    return _currentUser.CurrentDirectory + ">";
+                                    return "Error: Directory '" + sourceFullPath + "' has locked files\r\n" + _currentUser.CurrentDirectory + ">";
                                 }
-                                return "Error: Directory '" + sourceFullPath + "' has locked files\r\n" + _currentUser.CurrentDirectory + ">";
                             }
+                            return _destinationHasContent + "\r\n" + _currentUser.CurrentDirectory + ">";
                         }
-                        return _destinationHasContent + "\r\n" + _currentUser.CurrentDirectory + ">";
+                        return _deleteCurrentDirError + "\r\n" + _currentUser.CurrentDirectory + ">";
                     }
                     else
                     {
+                        //лочим, чтобы избежать удаления и блокировки файлов
                         lock (_syncFile)
                         {
                             var sourceFile = _fileSystem.GetFiles(f => f.FullPath == sourceFullPath).FirstOrDefault();

@@ -7,6 +7,7 @@ using System.Text;
 
 namespace ServiceHost
 {
+    //кастомный хост, принимающий в конструкторе реализацию файловой системы
     public class FileManagerServiceHost : System.ServiceModel.ServiceHost
     {
         private IFileSystemService _fileSystem;
@@ -17,6 +18,7 @@ namespace ServiceHost
             _fileSystem = fileSystem;
         }
 
+        //добавляем кастомное поведение
         protected override void OnOpen(TimeSpan timeout)
         {
             Description.Behaviors.Add(new FileManagerServiceBehavior(_fileSystem));

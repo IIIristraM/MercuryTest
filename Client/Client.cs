@@ -28,16 +28,18 @@ namespace Client
                         new NetTcpContextBinding(),
                         new EndpointAddress("net.tcp://" + address + "/FileManagerService/"));
                     _serviceProxy.Open();
-
-                    return _serviceProxy.ExecuteCommand("connect " + userName);
                 }
-                return _reconnectError;
+                else
+                {
+                    return _reconnectError;
+                }
             }
             catch
             {
                 _serviceProxy = null;
                 return _addressError;
             }
+            return _serviceProxy.ExecuteCommand("connect " + userName);
         }
 
         private string Quit()
@@ -58,6 +60,7 @@ namespace Client
         public string ExecuteCommand(string command)
         {
             command = command.ToLower();
+            command = command.Trim();
             var pattern = new Regex(@"(\S*)(\s*)(\S*)(\s*)(\S*)");
             var match = pattern.Match(command);
 

@@ -93,7 +93,7 @@ namespace UnitTests
             _service.CreateDirectory(path);
             _service.ChangeDirectory(path);
              response = _service.DeleteDirectory("");
-             Assert.AreEqual(response, "Error: Current directory can't be removed\r\nc:\\" + path + ">");
+             Assert.AreEqual(response, "Error: Current directory can't be moved or deleted\r\nc:\\" + path + ">");
 
              response = _service.DeleteDirectory("c:");
              Assert.AreEqual(response, "Error: Directory has subdirectories\r\nc:\\" + path + ">");
@@ -124,7 +124,7 @@ namespace UnitTests
             _service.CreateDirectory(path);
             _service.ChangeDirectory(path);
             response = _service.DeleteTree("");
-            Assert.AreEqual(response, "Error: Current directory can't be removed\r\nc:\\" + path + ">");
+            Assert.AreEqual(response, "Error: Current directory can't be moved or deleted\r\nc:\\" + path + ">");
 
             _service.CreateDirectory("temp2");
             _service.ChangeDirectory("c:");

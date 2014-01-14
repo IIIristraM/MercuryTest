@@ -9,10 +9,12 @@ namespace Domain
 {
     public class FileSystemService : IFileSystemService
     {
+        //словари, хранящие информацию по существующим в файловой системе папкам, файлам и пользователям
         private static ConcurrentDictionary<string, User> Users = new ConcurrentDictionary<string, User>();
         private static ConcurrentDictionary<string, File> Files = new ConcurrentDictionary<string, File>();
         private static ConcurrentDictionary<string, Directory> Directories = new ConcurrentDictionary<string, Directory>();
 
+        //переопределение свойств базовых сущностей для работы со словарями
         private class LocalUser : User
         {
             private IList<File> _lockedFiles;
@@ -93,6 +95,7 @@ namespace Domain
             }
         }
 
+        //реализация методов работы с файловой системой
         public IEnumerable<User> GetUsers(Expression<Func<User, bool>> where)
         {
             var query = Users.Select(u => u.Value);

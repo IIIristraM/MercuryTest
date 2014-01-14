@@ -8,6 +8,7 @@ using System.Threading.Tasks;
 
 namespace UnitTests
 {
+    //избавляемся от вызовов OperationContext
     public class FileManagerServiceStub : FileManagerService.FileManagerService
     {
         public FileManagerServiceStub(IFileSystemService fileSystem)
@@ -25,6 +26,7 @@ namespace UnitTests
         }
     }
 
+    //заглушка на клиентский callback
     public class CallbackStub : IClientNotification
     {
         public void PrintNotification(string notification)
